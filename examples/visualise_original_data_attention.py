@@ -8,6 +8,7 @@ By default, analyzes all episodes in the dataset.
 
 import argparse
 import os
+import sys
 import time
 import subprocess
 from typing import Dict, Tuple
@@ -20,6 +21,7 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.common.policies.factory import make_policy
 from lerobot.configs.policies import PreTrainedConfig
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.act_attention_mapper import ACTPolicyWithAttention
 
 
