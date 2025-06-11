@@ -77,7 +77,7 @@ def encode_video_ffmpeg(frames, output_filename, fps, pix_fmt_in="bgr24"):
     except Exception as e:
         print(f"An unexpected error occurred during video encoding for {output_filename}: {e}")
 
-def load_policy(policy_path: str, dataset_meta, policy_overrides: list = None) -> Tuple[torch.nn.Module, dict]:
+def load_policy(policy_path: str, dataset_meta, policy_overrides: list = None, device: str = "cuda") -> Tuple[torch.nn.Module, dict]:
     """Load and initialize a policy from checkpoint."""
     
     # Load regular LeRobot policy
@@ -93,7 +93,7 @@ def load_policy(policy_path: str, dataset_meta, policy_overrides: list = None) -
         policy_cfg.pretrained_path = policy_path
 
     # NOTE: policy has to be an ACT policy for this to work
-    policy = make_policy(policy_cfg, ds_meta=dataset_meta)
+    policy = make_policy(policy_cfg, ds_meta=dataset_meta, device=device)
     policy = ACTPolicyWithAttention(policy)
         
     return policy, policy_cfg
@@ -310,6 +310,8 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze policy behavior on dataset episodes")
     parser.add_argument("--dataset-repo-id", type=str, required=True,
                         help="Repository ID of the dataset to analyze")
+    parser.add_argument("--dataset-root", type=str, default=None,
+                        help="Dataset path")
     parser.add_argument("--episode-id", type=int, default=None,
                         help="Episode ID to analyze (if not specified, analyzes all episodes)")
     parser.add_argument("--policy-path", type=str, required=True,
@@ -341,7 +343,7 @@ def main():
     
     # Load dataset
     try:
-        dataset = LeRobotDataset(args.dataset_repo_id)
+        dataset = LeRobotDataset(args.dataset_repo_id, args.dataset_root)
         print(f"Dataset loaded successfully. Total episodes: {dataset.num_episodes}")
         
     except Exception as e:
@@ -366,7 +368,8 @@ def main():
         policy, policy_cfg = load_policy(
             args.policy_path,
             dataset.meta,
-            args.policy_overrides
+            args.policy_overrides, 
+            args.device
         )
         
         if hasattr(policy, 'model'):
