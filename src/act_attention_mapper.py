@@ -49,6 +49,28 @@ class ACTPolicyWithAttention:
         not self.policy.model.decoder.layers:
             raise AttributeError("Policy model structure does not match expected ACT architecture for target_layer.")
         self.target_layer = self.policy.model.decoder.layers[-1].multihead_attn
+
+        # Set up hook to capture attention weights
+        self.attention_weights_capture = []
+
+
+    def attention_hook(self, module, input_args, output_tuple):
+        # Capture the attention weights
+        # In some MultiheadAttention implementations, the attention weights
+        # might be returned with shape: [batch_size, tgt_len, src_len]
+        # or [batch_size, num_heads, tgt_len, src_len]
+        if isinstance(output_tuple, tuple) and len(output_tuple) > 1:
+            # If output is a tuple with attention weights as second element
+            attn_weights = output_tuple[1]
+        else:
+            # If output format is different, try to get weights from the module directly
+            # Some implementations store attention weights in the module after forward pass
+            attn_weights = getattr(module, 'attn_weights', None)
+        
+        if attn_weights is not None:
+            # Store the weights regardless of shape - we'll handle reshape later
+            self.attention_weights_capture.append(attn_weights.detach().cpu())
+    
         
     def select_action(self, observation: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, List[np.ndarray]]:
         """
@@ -69,27 +91,10 @@ class ACTPolicyWithAttention:
         image_spatial_shapes = self._get_image_spatial_shapes(images)
         
         # Set up hook to capture attention weights
-        attention_weights_capture = []
-        
-        def attention_hook(module, input_args, output_tuple):
-            # Capture the attention weights
-            # In some MultiheadAttention implementations, the attention weights
-            # might be returned with shape: [batch_size, tgt_len, src_len]
-            # or [batch_size, num_heads, tgt_len, src_len]
-            if isinstance(output_tuple, tuple) and len(output_tuple) > 1:
-                # If output is a tuple with attention weights as second element
-                attn_weights = output_tuple[1]
-            else:
-                # If output format is different, try to get weights from the module directly
-                # Some implementations store attention weights in the module after forward pass
-                attn_weights = getattr(module, 'attn_weights', None)
-            
-            if attn_weights is not None:
-                # Store the weights regardless of shape - we'll handle reshape later
-                attention_weights_capture.append(attn_weights.detach().cpu())
-        
+        self.attention_weights_capture.clear()
+
         # Register the hook
-        handle = self.target_layer.register_forward_hook(attention_hook)
+        handle = self.target_layer.register_forward_hook(self.attention_hook)
         
         # Call the original policy's select_action
         with torch.inference_mode():
@@ -99,8 +104,8 @@ class ACTPolicyWithAttention:
         handle.remove()
                 
         # Process the attention weights
-        if attention_weights_capture:
-            attn = attention_weights_capture[0].to(action.device)
+        if self.attention_weights_capture:
+            attn = self.attention_weights_capture[0].to(action.device)
             attention_maps, proprio_attention = self._map_attention_to_images(attn, image_spatial_shapes)
             self.last_attention_maps = attention_maps
             self.last_proprio_attention = proprio_attention  # Store for visualization
